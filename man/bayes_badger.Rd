@@ -23,7 +23,8 @@ bayes_badger(
   iter = 2000,
   warmup = floor(iter/2),
   thin = 1,
-  seed = NULL
+  seed = NULL,
+  ...
 )
 }
 \arguments{
