@@ -1,0 +1,14 @@
+Package: BayesBadger
+Title: Bayesian double generalized beta regression with spatial and temporal borrowing.
+Version: 0.1.0
+Authors@R: person("Abhi Jain", email = "abhijainstats@gmail.com", role = c("aut", "cre"))
+Description: This package includes code to run the Bayesian double generalized
+    beta regression model with spatial and temporal borrowing. The package also
+    includes functions to compute marginal effects for mean model covariates
+    and marginal effects for the spatial effects.
+License: MIT + file LICENSE
+Encoding: UTF-8
+Roxygen: list(markdown = TRUE)
+RoxygenNote: 7.3.3
+Imports: rstan
+
