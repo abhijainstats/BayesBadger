@@ -95,7 +95,8 @@ bayes_badger <- function(formula,
                          iter               = 2000,
                          warmup             = floor(iter / 2),
                          thin               = 1,
-                         seed               = NULL) {
+                         seed               = NULL,
+                         ...) {
   library(rstan)
   .beta_spatial_stan <- "
 data {
@@ -322,39 +323,3 @@ class(out) <- "BetaBayesSpatial"
 out
 }
 
-#' #' Print a BetaBayesSpatial Model Summary
-#' #'
-#' #' Prints a summary of the posterior estimates for the mean model coefficients
-#' #' (`beta`), dispersion model coefficients (`omega`), and spatial precision
-#' #' parameters (`lambda`, `gamma`). Spatial random effects (`alpha`) are omitted
-#' #' for brevity.
-#' #'
-#' #' @param x An object of class `BetaBayesSpatial`.
-#' #' @param digits Number of decimal places to display. Default is `3`.
-#' #' @param ... Additional arguments (currently unused).
-#' #'
-#' #' @return Invisibly returns `x`.
-#' #'
-#' #' @export
-#' print.BetaBayesSpatial <- function(x, digits = 3, ...) {
-#'   cat("Double Generalized Bayesian Beta Regression with Spatial Effects\n")
-#'   cat(
-#'     sprintf(
-#'       "n = %d obs,  S = %d spatial units,  p = %d mean preds,  q = %d dispersion preds\n\n",
-#'       x$n_obs,
-#'       x$n_spatial_units,
-#'       length(x$mean_terms),
-#'       length(x$dispersion_terms)
-#'     )
-#'   )
-#'   summ <- rstan::summary(
-#'     x$stanfit,
-#'     pars  = c("beta", "omega", "lambda", "gamma"),
-#'     probs = c(0.025, 0.5, 0.975)
-#'   )$summary
-#'   print(round(summ[, c("mean", "sd", "2.5%", "50%", "97.5%", "n_eff", "Rhat")], digits = digits))
-#'   cat(
-#'     "\nNote: spatial effects (alpha) omitted for brevity; use rstan::summary(fit$stanfit).\n"
-#'   )
-#'   invisible(x)
-#' }

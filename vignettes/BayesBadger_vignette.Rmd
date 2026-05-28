@@ -7,7 +7,7 @@ vignette: >
 %\VignetteEncoding{UTF-8}
 ---
   
-  ```{r setup, include = FALSE}
+```{r setup, include = FALSE}
 knitr::opts_chunk$set(
   collapse  = TRUE,
   comment   = "#>",
@@ -17,37 +17,37 @@ knitr::opts_chunk$set(
 
 ## Overview
 
-**BayesBadger** fits a Bayesian double generalized beta regression model with
-spatial random effects. It is designed for outcomes that are proportions or
-rates strictly between 0 and 1, where both the mean and the dispersion of the
-response may depend on covariates, and where observations are grouped into
-spatial units with a known adjacency structure.
+**BayesBadger** is an R package that offers functions to fit a Bayesian double generalized beta regression model with
+spatial effects. The function bayes_badger() implements this model, and is ideal for modelling responses that are bounded
+between 0 and 1, where the mean of the model depends on individual-level covariates and the (precision) dispersion part of the model
+depends on spatial-level covariates, thus capturing withing spatial-unit dispersion of the outcome. 
+Additionally, the bayes_badger() function allows users to specify the mean of the prior of the spatialeffects, 
+which allows users to incorporate temporal borrowing into the model in settings with multiple time points. The package 
+also includes functions to compute marginal effects for both mean-model covariates and spatial units, which offer 
+cleaner interpretation of the model's results.
 
 The model has three components:
   
-  - **Mean model**: individual-level covariates (binary, continuous, categorical)
-linked to the mean response via a logit link.
-- **Dispersion model**: spatial-unit-level covariates linked to the dispersion
-parameter via a log link.
-- **Spatial random effects**: a graph Laplacian prior encodes spatial smoothness,
-so nearby units share information about their random effects.
+- **Mean model**: individual-level covariates (binary, continuous, categorical) linked to the mean response via a logit link.
+- **Precision model**: spatial-unit-level covariates linked to the precision parameter via a log link.
+- **Spatial effects**: spatial effects, which are estimated through a graph Laplacian prior that encodes spatial smoothness.
 
 Sampling is performed via Stan using `rstan`.
 
 ---
   
-  ## Installation
+## Installation
   
-  ```{r install, eval = FALSE}
+```{r install, eval = FALSE}
 # install.packages("remotes")
-remotes::install_github("yourusername/BayesBadger")
+remotes::install_github("abhijainstats/BayesBadger", force = TRUE)
 ```
 
 ---
   
-  ## Setup
+## Setup
   
-  ```{r libraries}
+```{r libraries}
 library(BayesBadger)
 library(rstan)
 
@@ -59,10 +59,9 @@ set.seed(42)
 
 ---
   
-  ## Step 1: Define the Spatial Structure
+## Step 1: Define the Spatial Structure
   
-  We simulate 100 spatial units arranged on a 10×10 grid. Each unit is connected
-to its immediate horizontal and vertical neighbours, forming a regular lattice.
+We simulate data for 100 spatial units arranged on a 10×10 grid. Each unit is connected to its immediate horizontal and vertical neighbors, forming a regular lattice.
 The adjacency matrix must be symmetric with named rows and columns.
 
 ```{r spatial-structure}
@@ -86,24 +85,19 @@ for (r in 1:grid_dim) {
     }
   }
 }
-
-cat(sprintf("Adjacency matrix: %d x %d,  mean degree = %.2f\n",
-            S, S, mean(rowSums(A_mat))))
 ```
 
----
+
+## Step 2: Set True Parameters
   
-  ## Step 2: Set True Parameters
-  
-  We define the true parameter values used to simulate data. These include
-coefficients for the mean model (`beta`), the dispersion model (`omega`),
-and spatially structured random effects (`alpha`).
+We define the true parameter values used to simulate data. These include coefficients for the mean model (`beta`), 
+the dispersion model (`omega`), and spatially structured random effects (`alpha`).
 
 ```{r true-parameters}
 # Mean model coefficients
 beta_true <- c(
   female   =  0.25,
-  score    =  0.30,
+  inc    =  0.30,
   educmid  =  0.15,
   educhigh =  0.40
 )
@@ -111,8 +105,8 @@ beta_true <- c(
 # Dispersion model coefficients
 omega_true <- c(
   intercept =  1.20,
-  density   =  0.30,
-  income    = -0.20
+  diversity   =  0.30,
+  ses    = -0.20
 )
 
 # Spatial random effects: smooth 2-D wave rescaled to [-0.5, 0.5]
@@ -122,46 +116,39 @@ col_id <- ((1:S) - 1) %%  grid_dim + 1
 alpha_raw  <- sin(2 * pi * row_id / grid_dim) * cos(2 * pi * col_id / grid_dim)
 alpha_true <- -0.5 + (alpha_raw - min(alpha_raw)) /
   (max(alpha_raw) - min(alpha_raw))
-
-cat(sprintf("alpha_true range: [%.3f, %.3f]\n", min(alpha_true), max(alpha_true)))
 ```
 
 ---
   
-  ## Step 3: Simulate Spatial-Unit-Level Data
+## Step 3: Simulate Spatial-Unit-Level Data
   
-  Each spatial unit has two dispersion covariates: population density and median
-income. These are standardised and used to compute the true dispersion parameter
+Each spatial unit has two dispersion covariates: diversity index (diversity) and socioeconomic stats (ses). 
+We assume both of these covariates follow a standard normal distribution and are used to compute the true dispersion parameter
 `phi` for each unit.
 
 ```{r spatial-data}
-density_s <- as.numeric(scale(runif(S, 100, 5000)))
-income_s  <- as.numeric(scale(rnorm(S, 50000, 15000)))
+diversity <- rnorm(S, mean = 0, sd = 1)
+ses  <- rnorm(S, mean = 0, sd = 1)
 
 spatial_df <- data.frame(
   unit    = unit_names,
-  density = density_s,
-  income  = income_s
+  diversity = diversity,
+  ses  = ses
 )
 
 # True log-dispersion and phi per spatial unit
 log_phi_true <- omega_true["intercept"] +
-  omega_true["density"] * density_s +
-  omega_true["income"]  * income_s
+  omega_true["diversity"] * diversity +
+  omega_true["ses"]  * ses
 phi_true <- exp(log_phi_true)
-
-cat(sprintf("Spatial-unit phi range: [%.2f, %.2f]\n",
-            min(phi_true), max(phi_true)))
 ```
 
----
+
+## Step 4: Simulate Individual-Level Data
   
-  ## Step 4: Simulate Individual-Level Data
-  
-  Individuals are nested within spatial units. Unit sizes are drawn from a
-Poisson(5) distribution, with roughly 4% of units forced to be empty.
-Empty units still appear in the adjacency matrix and spatial data — they
-receive spatial random effect draws informed by their neighbours.
+Individuals are nested within spatial units. We assume that the number of individuals sampled in each spatial unit follows
+a Poisson(5) distribution and also enforce that about 4% of units have zero observations, to illustrate our methods ability
+to estimate spatial effects even for spatial units without any observations, so long as a neihghboring unit has at least 1 observation.
 
 ```{r individual-data}
 # Unit sizes
@@ -182,14 +169,14 @@ n       <- length(unit_id)
 
 # Individual-level covariates
 female <- rbinom(n, 1, 0.52)
-score  <- as.numeric(scale(rnorm(n, 50, 10)))
+inc  <- rnorm(n, 0, 1)
 educ   <- factor(
   sample(c("low", "mid", "high"), n, replace = TRUE, prob = c(0.35, 0.40, 0.25)),
   levels = c("low", "mid", "high")
 )
 
 # Simulate Beta response
-X_sim   <- model.matrix(~ female + score + educ)[, -1, drop = FALSE]
+X_sim   <- model.matrix(~ female + inc + educ)[, -1, drop = FALSE]
 alpha_i <- alpha_true[match(unit_id, unit_names)]
 eta_mu  <- X_sim %*% beta_true + alpha_i
 mu_i    <- 1 / (1 + exp(-eta_mu))
@@ -202,27 +189,22 @@ indiv_df <- data.frame(
   unit   = unit_id,
   y      = y_sim,
   female = female,
-  score  = score,
+  inc  = inc,
   educ   = educ
 )
 
 summary(indiv_df)
 ```
 
----
   
-  ## Step 5: Fit the Model
+## Step 5: Fit the Model
   
-  The formula uses `|` to separate the mean model (left) from the dispersion
-model (right). Variables on the left are individual-level; variables on the
-right are spatial-unit-level and must appear in `spatial_data`.
-
-> **Note:** This model inverts a 100×100 matrix at each iteration. Allow
-> approximately 10–20 minutes for fitting with the default settings.
+The formula uses `|` to separate the mean model (left) from the dispersion model (right). 
+Variables on the left are individual-level; variables on the right are spatial-unit-level and must appear in `spatial_data`.
 
 ```{r fit-model}
 fit <- bayes_badger(
-  formula          = y ~ female + score + factor(educ) | density + income,
+  formula          = y ~ female + inc + factor(educ) | diversity + ses,
   individual_data  = indiv_df,
   spatial_id       = "unit",
   spatial_data     = spatial_df,
@@ -250,20 +232,15 @@ parameters. Spatial random effects (`alpha`) are omitted for brevity but
 can be accessed via `rstan::summary(fit$stanfit)`.
 
 ```{r print-fit}
-print(fit)
+print(head(fit))
 ```
 
----
+## Step 6: Marginal Effects for Mean-Model Covariates
   
-  ## Step 6: Marginal Effects for Mean-Model Covariates
-  
-  `marginal_effects()` computes the average marginal effect (AME) for each
-mean-model predictor. For continuous variables the AME is the average change
-in the predicted mean for a one-unit increase. For binary variables it is the
-average change when the variable switches from 0 to 1.
-
-The function returns a vector of posterior draws for each variable, which can
-be summarised to obtain posterior means and credible intervals.
+`marginal_effects()` computes the average marginal effect (AME) for each mean-model predictor. 
+For continuous variables the AME is the average change in the predicted mean for a one-unit increase. 
+For binary variables it is the average change when the variable switches from 0 to 1. 
+The function returns a vector of posterior draws for each variable, which can be summarized to obtain posterior means and credible intervals.
 
 ```{r marginal-effects-covariates}
 me_covar <- marginal_effects(
@@ -296,17 +273,12 @@ summarise_draws <- function(draw_list) {
 summarise_draws(me_covar)
 ```
 
----
+## Step 7: Marginal Effects for Spatial Units
   
-  ## Step 7: Marginal Effects for Spatial Units
-  
-  `marginal_effects_spatial()` computes the AME for each spatial unit, defined
-as the average change in the predicted mean when that unit's spatial random
-effect replaces the cross-unit mean random effect. This quantifies how much
-each unit's location shifts predicted outcomes relative to the spatial average.
-
-The function returns an `n_draws × S` matrix. Each column corresponds to one
-spatial unit and contains its posterior AME draws.
+`marginal_effects_spatial()` computes the AME for each spatial unit, defined as the average change in the predicted mean 
+when that unit's spatial effect replaces the mean spatial effect. This quantifies how much belonging to a particular 
+spatial unit changes the predicted mean response, relative to the average spatial effect across all units. 
+The function returns an `n_draws × S` matrix. Each column corresponds to one spatial unit and contains its posterior AME draws.
 
 ```{r marginal-effects-spatial}
 me_spatial <- marginal_effects_spatial(
@@ -315,9 +287,6 @@ me_spatial <- marginal_effects_spatial(
   burnin = 0,
   thin   = 5
 )
-
-cat(sprintf("Output dimensions: %d draws x %d spatial units\n",
-            nrow(me_spatial), ncol(me_spatial)))
 
 # Summarise across draws for each spatial unit
 me_spatial_summary <- data.frame(
