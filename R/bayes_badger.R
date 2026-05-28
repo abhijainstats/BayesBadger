@@ -1,27 +1,36 @@
-#' Bayesian Double Generalized Beta Regression with Spatial and Temporal Borrowing
+#' Bayesian Double Generalized Beta Regression with Cluster and Temporal Borrowing
 #'
-#' Fits a Bayesian double generalized beta regression model with spatial effects
+#' Fits a Bayesian double generalized beta regression model with cluster effects
 #' using a graph Laplacian prior and temporal borrowing incorporated through the
-#' mean of the prior of alpha (spatial effects). The mean model is specified via a
+#' mean of the prior of alpha (cluster effects). The mean model is specified via a
 #' standard R formula and the dispersion model is optionally specified after a
 #' `|` separator. Sampling is performed via Stan.
+#'
+#' By default, the adjacency matrix is set to the identity matrix, which
+#' corresponds to a non-spatial setting where clusters are treated as
+#' exchangeable groups with no neighborhood structure. To enable spatial (or
+#' otherwise structured) borrowing across clusters, supply a symmetric
+#' non-negative adjacency matrix with row and column names matching the cluster
+#' identifiers.
 #'
 #' @param formula A two-sided formula specifying the mean model, and optionally
 #'   the dispersion model separated by `|`. For example,
 #'   `y ~ x1 + x2 | c1 + c2`. If no dispersion model is provided, an
 #'   intercept-only dispersion model is used.
 #' @param individual_data A data frame of individual-level observations containing
-#' the response variable, mean model predictors, and the spatial ID column.
-#' @param spatial_id A character string naming the column in `individual_data`
-#'   (and optionally `spatial_data`) that identifies the spatial unit each
+#'   the response variable, mean model predictors, and the cluster ID column.
+#' @param cluster_id A character string naming the column in `individual_data`
+#'   (and optionally `cluster_data`) that identifies the cluster each
 #'   observation belongs to.
-#' @param spatial_data An optional data frame of spatial-unit-level covariates
+#' @param cluster_data An optional data frame of cluster-level covariates
 #'   for the dispersion model. Required if the dispersion model includes
 #'   predictors. Default is `NULL`.
-#' @param adjacency_matrix A symmetric, non-negative adjacency matrix with row and column
-#'   names identifying spatial units. Used to construct the graph Laplacian.
-#' @param alpha_prior_mean A numeric vector of length S (number of spatial units)
-#'   specifying the prior mean for the spatial random effects. Defaults to a
+#' @param adjacency_matrix A symmetric, non-negative adjacency matrix with row
+#'   and column names identifying clusters. Used to construct the graph
+#'   Laplacian. Defaults to the identity matrix (non-spatial setting), in which
+#'   case clusters are treated as exchangeable groups.
+#' @param alpha_prior_mean A numeric vector of length S (number of clusters)
+#'   specifying the prior mean for the cluster random effects. Defaults to a
 #'   zero vector.
 #' @param beta_prior_mean Prior mean for the mean model coefficients. Default
 #'   is `0`.
@@ -48,17 +57,17 @@
 #' @param seed Optional integer seed for reproducibility. Default is `NULL`.
 #' @param ... Additional arguments passed to [rstan::stan()].
 #'
-#' @return An object of class `BetaBayesSpatial`, which is a list containing:
+#' @return An object of class `BayesBadger`, which is a list containing:
 #'   \describe{
 #'     \item{stanfit}{The fitted `stanfit` object returned by `rstan::stan()`.}
 #'     \item{mean_terms}{Character vector of mean model predictor names.}
 #'     \item{dispersion_terms}{Character vector of dispersion model predictor names.}
-#'     \item{spatial_units}{Character vector of spatial unit identifiers.}
+#'     \item{clusters}{Character vector of cluster identifiers.}
 #'     \item{n_obs}{Number of observations.}
-#'     \item{n_spatial_units}{Number of spatial units (S).}
+#'     \item{n_clusters}{Number of clusters (S).}
 #'     \item{laplacian}{The graph Laplacian matrix L.}
 #'     \item{X}{The mean model design matrix.}
-#'     \item{Z}{The spatial assignment matrix.}
+#'     \item{Z}{The cluster assignment matrix.}
 #'   }
 #'
 #' @importFrom rstan stan
@@ -68,20 +77,29 @@
 #'
 #' @examples
 #' \dontrun{
+#' # Non-spatial setting (default identity adjacency matrix)
+#' fit <- bayes_badger(
+#'   formula         = y ~ x1 + x2 | c1,
+#'   individual_data = my_data,
+#'   cluster_id      = "group",
+#'   cluster_data    = group_data
+#' )
+#'
+#' # Spatial setting with a user-supplied adjacency matrix
 #' fit <- bayes_badger(
 #'   formula          = y ~ x1 + x2 | c1,
 #'   individual_data  = my_data,
-#'   spatial_id       = "region",
-#'   spatial_data     = region_data,
+#'   cluster_id       = "region",
+#'   cluster_data     = region_data,
 #'   adjacency_matrix = adj_mat
 #' )
 #' print(fit)
 #' }
 bayes_badger <- function(formula,
                          individual_data,
-                         spatial_id,
-                         spatial_data       = NULL,
-                         adjacency_matrix,
+                         cluster_id,
+                         cluster_data       = NULL,
+                         adjacency_matrix   = NULL,
                          alpha_prior_mean   = NULL,
                          beta_prior_mean    = 0,
                          beta_prior_var     = 10,
@@ -98,7 +116,7 @@ bayes_badger <- function(formula,
                          seed               = NULL,
                          ...) {
   library(rstan)
-  .beta_spatial_stan <- "
+  .beta_cluster_stan <- "
 data {
   int<lower=1> n;
   int<lower=1> p;
@@ -173,8 +191,8 @@ else
   as.formula("~ 1")
 
 # 2. Build individual-level design matrix X and response y
-if (!spatial_id %in% names(individual_data))
-  stop(sprintf("Column '%s' not found in `individual_data`.", spatial_id))
+if (!cluster_id %in% names(individual_data))
+  stop(sprintf("Column '%s' not found in `individual_data`.", cluster_id))
 
 mf <- model.frame(mean_formula, data = individual_data, na.action = na.fail)
 y  <- model.response(mf)
@@ -185,29 +203,39 @@ if (!is.numeric(y) || any(y <= 0) || any(y >= 1))
 
 n <- nrow(X)
 
-# 3. Identify spatial units and build Z matrix
-A_mat         <- as.matrix(adjacency_matrix)
-spatial_units <- rownames(A_mat)
+# 3. Identify clusters and build Z matrix
+unit_col <- as.character(individual_data[[cluster_id]])
 
-if (is.null(spatial_units))
-  stop("`adjacency_matrix` must have row/column names identifying spatial units.")
-
-unit_col <- as.character(individual_data[[spatial_id]])
-unknown  <- setdiff(unique(unit_col), spatial_units)
-if (length(unknown) > 0)
-  stop(sprintf(
-    "Units in `individual_data` not found in `adjacency_matrix`: %s",
-    paste(unknown, collapse = ", ")
-  ))
-
-S <- length(spatial_units)
-Z <- matrix(0.0, nrow = n, ncol = S)
-colnames(Z) <- spatial_units
-for (i in seq_len(n)) {
-  Z[i, which(spatial_units == unit_col[i])] <- 1.0
+if (is.null(adjacency_matrix)) {
+  # Default to non-spatial setting: identity matrix over observed clusters
+  clusters <- sort(unique(unit_col))
+  S        <- length(clusters)
+  A_mat    <- diag(S)
+  dimnames(A_mat) <- list(clusters, clusters)
+} else {
+  A_mat    <- as.matrix(adjacency_matrix)
+  clusters <- rownames(A_mat)
+  
+  if (is.null(clusters))
+    stop("`adjacency_matrix` must have row/column names identifying clusters.")
+  
+  unknown <- setdiff(unique(unit_col), clusters)
+  if (length(unknown) > 0)
+    stop(sprintf(
+      "Clusters in `individual_data` not found in `adjacency_matrix`: %s",
+      paste(unknown, collapse = ", ")
+    ))
+  
+  S <- length(clusters)
 }
 
-# 4. Build spatial-unit-level dispersion matrix C
+Z <- matrix(0.0, nrow = n, ncol = S)
+colnames(Z) <- clusters
+for (i in seq_len(n)) {
+  Z[i, which(clusters == unit_col[i])] <- 1.0
+}
+
+# 4. Build cluster-level dispersion matrix C
 rhs_terms <- attr(terms(dispersion_formula), "term.labels")
 
 if (length(rhs_terms) == 0) {
@@ -216,36 +244,36 @@ if (length(rhs_terms) == 0) {
     1.0,
     nrow = S,
     ncol = 1,
-    dimnames = list(spatial_units, "(Intercept)")
+    dimnames = list(clusters, "(Intercept)")
   )
 } else {
-  if (is.null(spatial_data))
-    stop("`spatial_data` must be supplied when the dispersion model has predictors.")
+  if (is.null(cluster_data))
+    stop("`cluster_data` must be supplied when the dispersion model has predictors.")
   
-  # Identify unit labels in spatial_data
-  if (spatial_id %in% names(spatial_data)) {
-    uid_col <- as.character(spatial_data[[spatial_id]])
+  # Identify cluster labels in cluster_data
+  if (cluster_id %in% names(cluster_data)) {
+    uid_col <- as.character(cluster_data[[cluster_id]])
   } else {
-    uid_col <- rownames(spatial_data)
+    uid_col <- rownames(cluster_data)
   }
   if (is.null(uid_col))
     stop(
-      "Cannot identify spatial units in `spatial_data`. ",
+      "Cannot identify clusters in `cluster_data`. ",
       "Add a column named '",
-      spatial_id,
+      cluster_id,
       "' or set row names."
     )
   
-  missing_units <- setdiff(spatial_units, uid_col)
-  if (length(missing_units) > 0)
+  missing_clusters <- setdiff(clusters, uid_col)
+  if (length(missing_clusters) > 0)
     stop(sprintf(
-      "Units missing from `spatial_data`: %s",
-      paste(missing_units, collapse = ", ")
+      "Clusters missing from `cluster_data`: %s",
+      paste(missing_clusters, collapse = ", ")
     ))
   
-  sud <- spatial_data[match(spatial_units, uid_col), , drop = FALSE]
-  rownames(sud) <- spatial_units
-  C <- model.matrix(dispersion_formula, data = sud)
+  cud <- cluster_data[match(clusters, uid_col), , drop = FALSE]
+  rownames(cud) <- clusters
+  C <- model.matrix(dispersion_formula, data = cud)
 }
 
 # 5. Compute weighted graph Laplacian L = D_w - A
@@ -253,7 +281,7 @@ if (!isSymmetric(A_mat, tol = .Machine$double.eps^0.5))
   stop("`adjacency_matrix` must be symmetric.")
 if (any(A_mat < 0))
   stop("`adjacency_matrix` must have non-negative entries.")
-if (any(diag(A_mat) != 0))
+if (any(diag(A_mat) != 0) && !is.null(adjacency_matrix))
   stop("`adjacency_matrix` must have zeros on the diagonal (no self-loops).")
 
 D <- diag(rowSums(A_mat))
@@ -291,7 +319,7 @@ stan_data <- list(
 # 8. Compile and sample
 stan_args <- c(
   list(
-    model_code = .beta_spatial_stan,
+    model_code = .beta_cluster_stan,
     data       = stan_data,
     pars       = c("beta", "omega", "alpha", "lambda", "gamma"),
     chains     = chains,
@@ -311,15 +339,14 @@ out <- list(
   stanfit          = stanfit,
   mean_terms       = colnames(X),
   dispersion_terms = colnames(C),
-  spatial_units    = spatial_units,
+  clusters         = clusters,
   n_obs            = n,
-  n_spatial_units  = S,
+  n_clusters       = S,
   laplacian        = L,
   X                = X,
   # stored for marginal effects computation
   Z                = Z    # stored for marginal effects computation
 )
-class(out) <- "BetaBayesSpatial"
+class(out) <- "BayesBadger"
 out
 }
-

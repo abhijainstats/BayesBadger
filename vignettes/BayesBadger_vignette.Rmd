@@ -1,10 +1,10 @@
 ---
-  title: "Getting Started with BayesBadger"
+title: "Getting Started with BayesBadger"
 output: rmarkdown::html_vignette
 vignette: >
   %\VignetteIndexEntry{Getting Started with BayesBadger}
-%\VignetteEngine{knitr::rmarkdown}
-%\VignetteEncoding{UTF-8}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
 ---
   
 ```{r setup, include = FALSE}
@@ -17,12 +17,11 @@ knitr::opts_chunk$set(
 
 ## Overview
 
-**BayesBadger** is an R package that offers functions to fit a Bayesian double generalized beta regression model with
-spatial effects. The function bayes_badger() implements this model, and is ideal for modelling responses that are bounded
-between 0 and 1, where the mean of the model depends on individual-level covariates and the (precision) dispersion part of the model
-depends on spatial-level covariates, thus capturing withing spatial-unit dispersion of the outcome. 
-Additionally, the bayes_badger() function allows users to specify the mean of the prior of the spatialeffects, 
-which allows users to incorporate temporal borrowing into the model in settings with multiple time points. The package 
+**BayesBadger** is an R package that allows implementation of a Bayesian double generalized beta regression model with
+the mean modeled using individual-level covariates and the precision (dispersion) modeled with cluster-level covariates. 
+The function bayes_badger() implements this model, and also allows for spatial smoothing through a graph Laplacian prior on the spatial effects. 
+Additionally, the bayes_badger() function allows users to specify the mean of the prior of the spatial effects, 
+which can be used to incorporate temporal borrowing into the model in settings with multiple time points. The package 
 also includes functions to compute marginal effects for both mean-model covariates and spatial units, which offer 
 cleaner interpretation of the model's results.
 

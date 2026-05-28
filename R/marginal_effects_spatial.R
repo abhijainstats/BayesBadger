@@ -1,13 +1,13 @@
-#' Compute Spatial Marginal Effects for a BetaBayesSpatial Model
+#' Compute Cluster Marginal Effects for a BayesBadger Model
 #'
-#' Computes posterior marginal effects for each spatial unit from a fitted
-#' `BetaBayesSpatial` model. For each spatial unit, the marginal effect is
-#' defined as the average change in the predicted mean when that spatial
-#' unit's random effect (`alpha_s`) replaces the cross-unit mean random
-#' effect (`alpha_0`). This captures how much the predicted outcome shifts
-#' for a spatial unit relative to the average spatial effect.
+#' Computes posterior marginal effects for each cluster from a fitted
+#' `BayesBadger` model. For each cluster, the marginal effect is defined as
+#' the average change in the predicted mean when that cluster's random effect
+#' (`alpha_s`) replaces the cross-cluster mean random effect (`alpha_0`).
+#' This captures how much the predicted outcome shifts for a cluster relative
+#' to the average cluster effect.
 #'
-#' @param fit A fitted model object of class `BetaBayesSpatial`, as returned
+#' @param fit A fitted model object of class `BayesBadger`, as returned
 #'   by \code{bayes_badger()}.
 #' @param method A character string specifying how to summarise individual-level
 #'   marginal effects across observations within each MCMC draw. One of
@@ -18,9 +18,9 @@
 #'   Default is `1`.
 #'
 #' @return A numeric matrix of dimensions `n_draws x S`, where `n_draws` is
-#'   the number of posterior draws and `S` is the number of spatial units.
-#'   Column names correspond to spatial unit identifiers. Each entry
-#'   `[d, s]` gives the summarized marginal effect for spatial unit `s`
+#'   the number of posterior draws and `S` is the number of clusters.
+#'   Column names correspond to cluster identifiers. Each entry
+#'   `[d, s]` gives the summarized marginal effect for cluster `s`
 #'   in draw `d`.
 #'
 #' @importFrom rstan extract
@@ -33,18 +33,18 @@
 #' fit <- bayes_badger(
 #'   formula          = y ~ x1 + x2 | c1,
 #'   individual_data  = my_data,
-#'   spatial_id       = "region",
-#'   spatial_data     = region_data,
+#'   cluster_id       = "region",
+#'   cluster_data     = region_data,
 #'   adjacency_matrix = adj_mat
 #' )
 #'
-#' # Compute spatial marginal effects using posterior mean
-#' sme <- marginal_effects_spatial(fit, method = "mean")
+#' # Compute cluster marginal effects using posterior mean
+#' cme <- marginal_effects_cluster(fit, method = "mean")
 #'
-#' # Posterior mean AME per spatial unit
-#' colMeans(sme)
+#' # Posterior mean AME per cluster
+#' colMeans(cme)
 #' }
-marginal_effects_spatial <- function(fit,
+marginal_effects_cluster <- function(fit,
                                      method = c("mean", "median", "mode"),
                                      burnin = 0,
                                      thin   = 1) {
@@ -72,16 +72,16 @@ marginal_effects_spatial <- function(fit,
   alpha_draws <- draws$alpha   # [n_draws x S]
   n_draws     <- nrow(beta_draws)
   
-  X             <- fit$X              # [n x p]
-  spatial_units <- fit$spatial_units  # length S, ordered as in alpha columns
+  X        <- fit$X         # [n x p]
+  clusters <- fit$clusters  # length S, ordered as in alpha columns
   
-  S <- length(spatial_units)
+  S <- length(clusters)
   n <- nrow(X)
   
   # linear predictor from covariates only (no alpha): [n x n_draws]
   Xbeta <- X %*% t(beta_draws)
   
-  # cross-spatial-unit mean of alpha per draw: [n_draws] vector
+  # cross-cluster mean of alpha per draw: [n_draws] vector
   alpha0_per_draw <- rowMeans(alpha_draws)
   
   # baseline eta with alpha0: [n x n_draws]
@@ -90,10 +90,10 @@ marginal_effects_spatial <- function(fit,
                          ncol  = n_draws,
                          byrow = TRUE)
   
-  # --- loop over spatial units ----------------------------------------------
-  # ame_draws: [n_draws x S] — per-draw AME for each spatial unit
+  # --- loop over clusters ---------------------------------------------------
+  # ame_draws: [n_draws x S] — per-draw AME for each cluster
   ame_draws <- matrix(NA_real_, nrow = n_draws, ncol = S)
-  colnames(ame_draws) <- spatial_units
+  colnames(ame_draws) <- clusters
   
   for (s in seq_len(S)) {
     alpha_s <- matrix(alpha_draws[, s],

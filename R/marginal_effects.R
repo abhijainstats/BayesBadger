@@ -1,14 +1,14 @@
-#' Compute Marginal Effects for a BetaBayesSpatial Model
+#' Compute Marginal Effects for a BayesBadger Model
 #'
 #' Computes posterior marginal effects for one or more mean model predictors
-#' from a fitted `BetaBayesSpatial` model. For continuous variables, the
+#' from a fitted `BayesBadger` model. For continuous variables, the
 #' marginal effect is the average change in the predicted mean when the
 #' predictor increases by one unit. For binary/categorical variables, it is
 #' the average change when the predictor switches from 0 to 1. Effects are
 #' summarised across individuals using the mean, median, or mode of the
 #' posterior draws.
 #'
-#' @param fit A fitted model object of class `BetaBayesSpatial`, as returned
+#' @param fit A fitted model object of class `BayesBadger`, as returned
 #'   by \code{bayes_badger()}.
 #' @param variables A character vector of predictor names for which marginal
 #'   effects should be computed. Must be a subset of the mean model terms in
@@ -40,8 +40,8 @@
 #' fit <- bayes_badger(
 #'   formula          = y ~ x1 + x2 | c1,
 #'   individual_data  = my_data,
-#'   spatial_id       = "region",
-#'   spatial_data     = region_data,
+#'   cluster_id       = "region",
+#'   cluster_data     = region_data,
 #'   adjacency_matrix = adj_mat
 #' )
 #'
