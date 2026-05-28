@@ -6,207 +6,101 @@ vignette: >
   %\VignetteEngine{knitr::rmarkdown}
   %\VignetteEncoding{UTF-8}
 ---
-  
+
 ```{r setup, include = FALSE}
 knitr::opts_chunk$set(
-  collapse  = TRUE,
-  comment   = "#>",
-  eval      = FALSE   # set to TRUE if you want code to run on build
+  collapse = TRUE,
+  comment  = "#>",
+  eval     = FALSE   # set to TRUE if you want code to run on build
 )
 ```
 
 ## Overview
 
-**BayesBadger** is an R package that allows implementation of a Bayesian double generalized beta regression model with
-the mean modeled using individual-level covariates and the precision (dispersion) modeled with cluster-level covariates. 
-The function bayes_badger() implements this model, and also allows for spatial smoothing through a graph Laplacian prior on the spatial effects. 
-Additionally, the bayes_badger() function allows users to specify the mean of the prior of the spatial effects, 
-which can be used to incorporate temporal borrowing into the model in settings with multiple time points. The package 
-also includes functions to compute marginal effects for both mean-model covariates and spatial units, which offer 
-cleaner interpretation of the model's results.
+**BayesBadger** is an R package that implements a Bayesian double generalized
+beta regression model with the mean modeled using individual-level covariates
+and the precision (dispersion) modeled with cluster-level covariates. The
+function `bayes_badger()` implements this model, and also allows for spatial
+smoothing through a graph Laplacian prior on the cluster effects.
+Additionally, the `bayes_badger()` function allows users to specify the mean
+of the prior of the cluster effects, which can be used to incorporate temporal
+borrowing into the model in settings with multiple time points. The package
+also includes functions to compute marginal effects for both mean-model
+covariates and clusters, which offer cleaner interpretation of the model's
+results.
 
 The model has three components:
-  
-- **Mean model**: individual-level covariates (binary, continuous, categorical) linked to the mean response via a logit link.
-- **Precision model**: spatial-unit-level covariates linked to the precision parameter via a log link.
-- **Spatial effects**: spatial effects, which are estimated through a graph Laplacian prior that encodes spatial smoothness.
+
+- **Mean model**: individual-level covariates (binary, continuous, categorical)
+  linked to the mean response via a logit link.
+- **Precision model**: cluster-level covariates linked to the precision
+  parameter via a log link.
+- **Cluster effects**: cluster-level random effects, estimated through a graph
+  Laplacian prior that encodes (optional) spatial smoothness.
 
 Sampling is performed via Stan using `rstan`.
 
 ---
-  
+
 ## Installation
-  
+
 ```{r install, eval = FALSE}
 # install.packages("remotes")
 remotes::install_github("abhijainstats/BayesBadger", force = TRUE)
 ```
 
 ---
-  
+
 ## Setup
-  
+
 ```{r libraries}
 library(BayesBadger)
 library(rstan)
 
 rstan_options(auto_write = TRUE)
 options(mc.cores = parallel::detectCores())
-
-set.seed(42)
 ```
 
 ---
-  
-## Step 1: Define the Spatial Structure
-  
-We simulate data for 100 spatial units arranged on a 10×10 grid. Each unit is connected to its immediate horizontal and vertical neighbors, forming a regular lattice.
-The adjacency matrix must be symmetric with named rows and columns.
 
-```{r spatial-structure}
-S        <- 100
-grid_dim <- 10
-unit_names <- paste0("UNIT_", sprintf("%03d", 1:S))
+## Example Data
 
-A_mat <- matrix(0, S, S, dimnames = list(unit_names, unit_names))
-node_id <- function(r, c) (r - 1) * grid_dim + c
+`BayesBadger` ships with a simulated example dataset to illustrate the
+modeling workflow. The data represent 100 clusters arranged on a 10×10 grid,
+with individuals nested within clusters. The bundled objects are:
 
-for (r in 1:grid_dim) {
-  for (c in 1:grid_dim) {
-    s <- node_id(r, c)
-    if (c < grid_dim) {
-      nb <- node_id(r, c + 1)
-      A_mat[s, nb] <- A_mat[nb, s] <- 1
-    }
-    if (r < grid_dim) {
-      nb <- node_id(r + 1, c)
-      A_mat[s, nb] <- A_mat[nb, s] <- 1
-    }
-  }
-}
+- **`indiv_df`** — individual-level observations with response `y` and
+  covariates `female`, `inc`, and `educ`.
+- **`spatial_df`** — cluster-level covariates (`diversity`, `ses`) used for
+  the dispersion model.
+- **`A_mat`** — a 100×100 symmetric adjacency matrix encoding the
+  neighbourhood structure of the 10×10 grid.
+
+```{r load-data}
+data(indiv_df)
+data(spatial_df)
+data(A_mat)
+
+head(indiv_df)
+head(spatial_df)
 ```
 
-
-## Step 2: Set True Parameters
-  
-We define the true parameter values used to simulate data. These include coefficients for the mean model (`beta`), 
-the dispersion model (`omega`), and spatially structured random effects (`alpha`).
-
-```{r true-parameters}
-# Mean model coefficients
-beta_true <- c(
-  female   =  0.25,
-  inc    =  0.30,
-  educmid  =  0.15,
-  educhigh =  0.40
-)
-
-# Dispersion model coefficients
-omega_true <- c(
-  intercept =  1.20,
-  diversity   =  0.30,
-  ses    = -0.20
-)
-
-# Spatial random effects: smooth 2-D wave rescaled to [-0.5, 0.5]
-row_id <- ((1:S) - 1) %/% grid_dim + 1
-col_id <- ((1:S) - 1) %%  grid_dim + 1
-
-alpha_raw  <- sin(2 * pi * row_id / grid_dim) * cos(2 * pi * col_id / grid_dim)
-alpha_true <- -0.5 + (alpha_raw - min(alpha_raw)) /
-  (max(alpha_raw) - min(alpha_raw))
-```
+See `?indiv_df`, `?spatial_df`, and `?A_mat` for full documentation.
 
 ---
-  
-## Step 3: Simulate Spatial-Unit-Level Data
-  
-Each spatial unit has two dispersion covariates: diversity index (diversity) and socioeconomic stats (ses). 
-We assume both of these covariates follow a standard normal distribution and are used to compute the true dispersion parameter
-`phi` for each unit.
 
-```{r spatial-data}
-diversity <- rnorm(S, mean = 0, sd = 1)
-ses  <- rnorm(S, mean = 0, sd = 1)
+## Fit the Model
 
-spatial_df <- data.frame(
-  unit    = unit_names,
-  diversity = diversity,
-  ses  = ses
-)
-
-# True log-dispersion and phi per spatial unit
-log_phi_true <- omega_true["intercept"] +
-  omega_true["diversity"] * diversity +
-  omega_true["ses"]  * ses
-phi_true <- exp(log_phi_true)
-```
-
-
-## Step 4: Simulate Individual-Level Data
-  
-Individuals are nested within spatial units. We assume that the number of individuals sampled in each spatial unit follows
-a Poisson(5) distribution and also enforce that about 4% of units have zero observations, to illustrate our methods ability
-to estimate spatial effects even for spatial units without any observations, so long as a neihghboring unit has at least 1 observation.
-
-```{r individual-data}
-# Unit sizes
-n_per_unit <- rpois(S, lambda = 5)
-n_per_unit <- pmax(n_per_unit, 1)
-
-# Force ~4% of units to be empty
-empty_units <- sample(seq_len(S), size = round(0.04 * S), replace = FALSE)
-n_per_unit[empty_units] <- 0L
-
-cat(sprintf("Total individuals: %d\n", sum(n_per_unit)))
-cat(sprintf("Empty units: %d (%.1f%%)\n",
-            sum(n_per_unit == 0), 100 * mean(n_per_unit == 0)))
-
-# Repeat unit label for each individual
-unit_id <- rep(unit_names, times = n_per_unit)
-n       <- length(unit_id)
-
-# Individual-level covariates
-female <- rbinom(n, 1, 0.52)
-inc  <- rnorm(n, 0, 1)
-educ   <- factor(
-  sample(c("low", "mid", "high"), n, replace = TRUE, prob = c(0.35, 0.40, 0.25)),
-  levels = c("low", "mid", "high")
-)
-
-# Simulate Beta response
-X_sim   <- model.matrix(~ female + inc + educ)[, -1, drop = FALSE]
-alpha_i <- alpha_true[match(unit_id, unit_names)]
-eta_mu  <- X_sim %*% beta_true + alpha_i
-mu_i    <- 1 / (1 + exp(-eta_mu))
-phi_i   <- phi_true[match(unit_id, unit_names)]
-
-y_sim <- rbeta(n, shape1 = mu_i * phi_i, shape2 = (1 - mu_i) * phi_i)
-y_sim <- pmax(pmin(y_sim, 1 - 1e-6), 1e-6)
-
-indiv_df <- data.frame(
-  unit   = unit_id,
-  y      = y_sim,
-  female = female,
-  inc  = inc,
-  educ   = educ
-)
-
-summary(indiv_df)
-```
-
-  
-## Step 5: Fit the Model
-  
-The formula uses `|` to separate the mean model (left) from the dispersion model (right). 
-Variables on the left are individual-level; variables on the right are spatial-unit-level and must appear in `spatial_data`.
+The formula uses `|` to separate the mean model (left) from the dispersion
+model (right). Variables on the left are individual-level; variables on the
+right are cluster-level and must appear in `cluster_data`.
 
 ```{r fit-model}
 fit <- bayes_badger(
   formula          = y ~ female + inc + factor(educ) | diversity + ses,
   individual_data  = indiv_df,
-  spatial_id       = "unit",
-  spatial_data     = spatial_df,
+  cluster_id       = "unit",
+  cluster_data     = spatial_df,
   adjacency_matrix = A_mat,
   # Priors
   beta_prior_mean    = 0,
@@ -226,27 +120,30 @@ fit <- bayes_badger(
 )
 ```
 
-The `print` method displays a summary of the posterior for the global
-parameters. Spatial random effects (`alpha`) are omitted for brevity but
-can be accessed via `rstan::summary(fit$stanfit)`.
+You can inspect the fitted model by accessing its components, e.g. the
+posterior summary for global parameters via `rstan::summary(fit$stanfit)`.
 
-```{r print-fit}
-print(head(fit))
+```{r inspect-fit}
+rstan::summary(fit$stanfit, pars = c("beta", "omega", "lambda", "gamma"))$summary
 ```
 
-## Step 6: Marginal Effects for Mean-Model Covariates
-  
-`marginal_effects()` computes the average marginal effect (AME) for each mean-model predictor. 
-For continuous variables the AME is the average change in the predicted mean for a one-unit increase. 
-For binary variables it is the average change when the variable switches from 0 to 1. 
-The function returns a vector of posterior draws for each variable, which can be summarized to obtain posterior means and credible intervals.
+---
+
+## Marginal Effects for Mean-Model Covariates
+
+`marginal_effects()` computes the average marginal effect (AME) for each
+mean-model predictor. For continuous variables the AME is the average change
+in the predicted mean for a one-unit increase. For binary variables it is the
+average change when the variable switches from 0 to 1. The function returns
+a vector of posterior draws for each variable, which can be summarized to
+obtain posterior means and credible intervals.
 
 ```{r marginal-effects-covariates}
 me_covar <- marginal_effects(
   fit,
   variables = fit$mean_terms,
   type      = c(female   = "binary",
-                score    = "continuous",
+                inc      = "continuous",
                 educmid  = "binary",
                 educhigh = "binary"),
   method = "mean",
@@ -272,31 +169,36 @@ summarise_draws <- function(draw_list) {
 summarise_draws(me_covar)
 ```
 
-## Step 7: Marginal Effects for Spatial Units
-  
-`marginal_effects_spatial()` computes the AME for each spatial unit, defined as the average change in the predicted mean 
-when that unit's spatial effect replaces the mean spatial effect. This quantifies how much belonging to a particular 
-spatial unit changes the predicted mean response, relative to the average spatial effect across all units. 
-The function returns an `n_draws × S` matrix. Each column corresponds to one spatial unit and contains its posterior AME draws.
+---
 
-```{r marginal-effects-spatial}
-me_spatial <- marginal_effects_spatial(
+## Marginal Effects for Clusters
+
+`marginal_effects_cluster()` computes the AME for each cluster, defined as
+the average change in the predicted mean when that cluster's random effect
+replaces the mean cluster effect. This quantifies how much belonging to a
+particular cluster changes the predicted mean response, relative to the
+average cluster effect across all clusters. The function returns an
+`n_draws × S` matrix, where each column corresponds to one cluster and
+contains its posterior AME draws.
+
+```{r marginal-effects-cluster}
+me_cluster <- marginal_effects_cluster(
   fit,
   method = "mean",
   burnin = 0,
   thin   = 5
 )
 
-# Summarise across draws for each spatial unit
-me_spatial_summary <- data.frame(
-  spatial_unit = colnames(me_spatial),
-  mean_est     = round(colMeans(me_spatial), 4),
-  sd           = round(apply(me_spatial, 2, sd), 4),
-  `2.5%`       = round(apply(me_spatial, 2, quantile, probs = 0.025), 4),
-  `97.5%`      = round(apply(me_spatial, 2, quantile, probs = 0.975), 4),
-  check.names  = FALSE,
-  row.names    = NULL
+# Summarise across draws for each cluster
+me_cluster_summary <- data.frame(
+  cluster     = colnames(me_cluster),
+  mean_est    = round(colMeans(me_cluster), 4),
+  sd          = round(apply(me_cluster, 2, sd), 4),
+  `2.5%`      = round(apply(me_cluster, 2, quantile, probs = 0.025), 4),
+  `97.5%`     = round(apply(me_cluster, 2, quantile, probs = 0.975), 4),
+  check.names = FALSE,
+  row.names   = NULL
 )
 
-head(me_spatial_summary, 10)
+head(me_cluster_summary, 10)
 ```
