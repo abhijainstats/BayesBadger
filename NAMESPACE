@@ -2,7 +2,7 @@
 
 export(bayes_badger)
 export(marginal_effects)
-export(marginal_effects_spatial)
+export(marginal_effects_cluster)
 importFrom(rstan,extract)
 importFrom(rstan,stan)
 importFrom(stats,as.formula)

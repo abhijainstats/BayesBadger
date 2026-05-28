@@ -2,14 +2,14 @@
 % Please edit documentation in R/bayes_badger.R
 \name{bayes_badger}
 \alias{bayes_badger}
-\title{Bayesian Double Generalized Beta Regression with Spatial and Temporal Borrowing}
+\title{Bayesian Double Generalized Beta Regression with Cluster and Temporal Borrowing}
 \usage{
 bayes_badger(
   formula,
   individual_data,
-  spatial_id,
-  spatial_data = NULL,
-  adjacency_matrix,
+  cluster_id,
+  cluster_data = NULL,
+  adjacency_matrix = NULL,
   alpha_prior_mean = NULL,
   beta_prior_mean = 0,
   beta_prior_var = 10,
@@ -34,21 +34,23 @@ the dispersion model separated by \code{|}. For example,
 intercept-only dispersion model is used.}
 
 \item{individual_data}{A data frame of individual-level observations containing
-the response variable, mean model predictors, and the spatial ID column.}
+the response variable, mean model predictors, and the cluster ID column.}
 
-\item{spatial_id}{A character string naming the column in \code{individual_data}
-(and optionally \code{spatial_data}) that identifies the spatial unit each
+\item{cluster_id}{A character string naming the column in \code{individual_data}
+(and optionally \code{cluster_data}) that identifies the cluster each
 observation belongs to.}
 
-\item{spatial_data}{An optional data frame of spatial-unit-level covariates
+\item{cluster_data}{An optional data frame of cluster-level covariates
 for the dispersion model. Required if the dispersion model includes
 predictors. Default is \code{NULL}.}
 
-\item{adjacency_matrix}{A symmetric, non-negative adjacency matrix with row and column
-names identifying spatial units. Used to construct the graph Laplacian.}
+\item{adjacency_matrix}{A symmetric, non-negative adjacency matrix with row
+and column names identifying clusters. Used to construct the graph
+Laplacian. Defaults to the identity matrix (non-spatial setting), in which
+case clusters are treated as exchangeable groups.}
 
-\item{alpha_prior_mean}{A numeric vector of length S (number of spatial units)
-specifying the prior mean for the spatial random effects. Defaults to a
+\item{alpha_prior_mean}{A numeric vector of length S (number of clusters)
+specifying the prior mean for the cluster random effects. Defaults to a
 zero vector.}
 
 \item{beta_prior_mean}{Prior mean for the mean model coefficients. Default
@@ -90,33 +92,50 @@ is \code{2000}.}
 \item{...}{Additional arguments passed to \code{\link[rstan:stan]{rstan::stan()}}.}
 }
 \value{
-An object of class \code{BetaBayesSpatial}, which is a list containing:
+An object of class \code{BayesBadger}, which is a list containing:
 \describe{
 \item{stanfit}{The fitted \code{stanfit} object returned by \code{rstan::stan()}.}
 \item{mean_terms}{Character vector of mean model predictor names.}
 \item{dispersion_terms}{Character vector of dispersion model predictor names.}
-\item{spatial_units}{Character vector of spatial unit identifiers.}
+\item{clusters}{Character vector of cluster identifiers.}
 \item{n_obs}{Number of observations.}
-\item{n_spatial_units}{Number of spatial units (S).}
+\item{n_clusters}{Number of clusters (S).}
 \item{laplacian}{The graph Laplacian matrix L.}
 \item{X}{The mean model design matrix.}
-\item{Z}{The spatial assignment matrix.}
+\item{Z}{The cluster assignment matrix.}
 }
 }
 \description{
-Fits a Bayesian double generalized beta regression model with spatial effects
+Fits a Bayesian double generalized beta regression model with cluster effects
 using a graph Laplacian prior and temporal borrowing incorporated through the
-mean of the prior of alpha (spatial effects). The mean model is specified via a
+mean of the prior of alpha (cluster effects). The mean model is specified via a
 standard R formula and the dispersion model is optionally specified after a
 \code{|} separator. Sampling is performed via Stan.
 }
+\details{
+By default, the adjacency matrix is set to the identity matrix, which
+corresponds to a non-spatial setting where clusters are treated as
+exchangeable groups with no neighborhood structure. To enable spatial (or
+otherwise structured) borrowing across clusters, supply a symmetric
+non-negative adjacency matrix with row and column names matching the cluster
+identifiers.
+}
 \examples{
 \dontrun{
+# Non-spatial setting (default identity adjacency matrix)
+fit <- bayes_badger(
+  formula         = y ~ x1 + x2 | c1,
+  individual_data = my_data,
+  cluster_id      = "group",
+  cluster_data    = group_data
+)
+
+# Spatial setting with a user-supplied adjacency matrix
 fit <- bayes_badger(
   formula          = y ~ x1 + x2 | c1,
   individual_data  = my_data,
-  spatial_id       = "region",
-  spatial_data     = region_data,
+  cluster_id       = "region",
+  cluster_data     = region_data,
   adjacency_matrix = adj_mat
 )
 print(fit)

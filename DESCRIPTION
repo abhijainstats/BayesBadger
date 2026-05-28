@@ -16,3 +16,4 @@ Suggests:
     rmarkdown,
     HDInterval
 VignetteBuilder: knitr
+

@@ -2,7 +2,7 @@
 % Please edit documentation in R/marginal_effects.R
 \name{marginal_effects}
 \alias{marginal_effects}
-\title{Compute Marginal Effects for a BetaBayesSpatial Model}
+\title{Compute Marginal Effects for a BayesBadger Model}
 \usage{
 marginal_effects(
   fit,
@@ -14,7 +14,7 @@ marginal_effects(
 )
 }
 \arguments{
-\item{fit}{A fitted model object of class \code{BetaBayesSpatial}, as returned
+\item{fit}{A fitted model object of class \code{BayesBadger}, as returned
 by \code{bayes_badger()}.}
 
 \item{variables}{A character vector of predictor names for which marginal
@@ -44,7 +44,7 @@ per variable.
 }
 \description{
 Computes posterior marginal effects for one or more mean model predictors
-from a fitted \code{BetaBayesSpatial} model. For continuous variables, the
+from a fitted \code{BayesBadger} model. For continuous variables, the
 marginal effect is the average change in the predicted mean when the
 predictor increases by one unit. For binary/categorical variables, it is
 the average change when the predictor switches from 0 to 1. Effects are
@@ -56,8 +56,8 @@ posterior draws.
 fit <- bayes_badger(
   formula          = y ~ x1 + x2 | c1,
   individual_data  = my_data,
-  spatial_id       = "region",
-  spatial_data     = region_data,
+  cluster_id       = "region",
+  cluster_data     = region_data,
   adjacency_matrix = adj_mat
 )
 
