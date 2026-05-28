@@ -11,7 +11,7 @@ vignette: >
 knitr::opts_chunk$set(
   collapse = TRUE,
   comment  = "#>",
-  eval     = FALSE   # set to TRUE if you want code to run on build
+  eval     = TRUE   # set to TRUE if you want code to run on build
 )
 ```
 
@@ -76,7 +76,7 @@ with individuals nested within clusters. The bundled objects are:
 - **`A_mat`** — a 100×100 symmetric adjacency matrix encoding the
   neighbourhood structure of the 10×10 grid.
 
-```{r load-data}
+```{r load-data, echo=TRUE}
 data(indiv_df)
 data(spatial_df)
 data(A_mat)
@@ -123,7 +123,7 @@ fit <- bayes_badger(
 You can inspect the fitted model by accessing its components, e.g. the
 posterior summary for global parameters via `rstan::summary(fit$stanfit)`.
 
-```{r inspect-fit}
+```{r inspect-fit, echo=TRUE, results='asis'}
 rstan::summary(fit$stanfit, pars = c("beta", "omega", "lambda", "gamma"))$summary
 ```
 
@@ -138,7 +138,7 @@ average change when the variable switches from 0 to 1. The function returns
 a vector of posterior draws for each variable, which can be summarized to
 obtain posterior means and credible intervals.
 
-```{r marginal-effects-covariates}
+```{r marginal-effects-covariates, echo=TRUE, results='asis'}
 me_covar <- marginal_effects(
   fit,
   variables = fit$mean_terms,
@@ -181,7 +181,7 @@ average cluster effect across all clusters. The function returns an
 `n_draws × S` matrix, where each column corresponds to one cluster and
 contains its posterior AME draws.
 
-```{r marginal-effects-cluster}
+```{r marginal-effects-cluster, echo=TRUE, results='asis'}
 me_cluster <- marginal_effects_cluster(
   fit,
   method = "mean",
