@@ -35,8 +35,8 @@ The model has three components:
   linked to the mean response via a logit link.
 - **Precision model**: cluster-level covariates linked to the precision
   parameter via a log link.
-- **Cluster effects**: cluster-level random effects, estimated through a graph
-  Laplacian prior that encodes (optional) spatial smoothness.
+- **Cluster effects**: cluster-level random effects, can be optionally estimated through a graph
+  Laplacian prior that encodes spatial smoothness.
 
 Sampling is performed via Stan using `rstan`.
 
@@ -46,7 +46,7 @@ Sampling is performed via Stan using `rstan`.
 
 ```{r install, eval = FALSE}
 # install.packages("remotes")
-remotes::install_github("abhijainstats/BayesBadger", force = TRUE)
+remotes::install_github("abhijainstats/BayesBadger")
 ```
 
 ---
@@ -56,6 +56,8 @@ remotes::install_github("abhijainstats/BayesBadger", force = TRUE)
 ```{r libraries}
 library(BayesBadger)
 library(rstan)
+library(knitr)
+library(kableExtra)
 
 rstan_options(auto_write = TRUE)
 options(mc.cores = parallel::detectCores())
@@ -65,24 +67,27 @@ options(mc.cores = parallel::detectCores())
 
 ## Example Data
 
-`BayesBadger` ships with a simulated example dataset to illustrate the
+`BayesBadger` comes with a simulated example dataset to illustrate the
 modeling workflow. The data represent 100 clusters arranged on a 10×10 grid,
 with individuals nested within clusters. The bundled objects are:
 
 - **`indiv_df`** — individual-level observations with response `y` and
-  covariates `female`, `inc`, and `educ`.
+  covariates `female`, `inc`, and `educ`. 
 - **`spatial_df`** — cluster-level covariates (`diversity`, `ses`) used for
   the dispersion model.
 - **`A_mat`** — a 100×100 symmetric adjacency matrix encoding the
   neighbourhood structure of the 10×10 grid.
+- The responde `y` is a continuous variable
+  simulated from a double generalized beta distribution, with `female`, `inc`, and `educ` as mean-model covariates as well as a
+  spatially structured cluster effect.
 
 ```{r load-data, echo=TRUE}
 data(indiv_df)
 data(spatial_df)
 data(A_mat)
 
-head(indiv_df)
-head(spatial_df)
+kable(head(indiv_df))
+kable(head(spatial_df))
 ```
 
 See `?indiv_df`, `?spatial_df`, and `?A_mat` for full documentation.
@@ -112,7 +117,7 @@ fit <- bayes_badger(
   gamma_prior_shape  = 1,
   gamma_prior_rate   = 10,
   # MCMC
-  chains = 4,
+  chains = 1,
   iter   = 2000,
   warmup = 1000,
   thin   = 1,
@@ -124,7 +129,7 @@ You can inspect the fitted model by accessing its components, e.g. the
 posterior summary for global parameters via `rstan::summary(fit$stanfit)`.
 
 ```{r inspect-fit, echo=TRUE, results='asis'}
-rstan::summary(fit$stanfit, pars = c("beta", "omega", "lambda", "gamma"))$summary
+kable(rstan::summary(fit$stanfit, pars = c("beta", "omega", "lambda", "gamma"))$summary)
 ```
 
 ---
@@ -166,7 +171,16 @@ summarise_draws <- function(draw_list) {
   }))
 }
 
-summarise_draws(me_covar)
+library(kableExtra)
+
+knitr::kable(
+  summarise_draws(me_covar),
+  caption = "Posterior Marginal Effects for Mean-Model Covariates"
+) |>
+  kable_styling(
+    bootstrap_options = c("striped", "hover", "condensed"),
+    full_width        = FALSE
+  )
 ```
 
 ---
@@ -200,5 +214,5 @@ me_cluster_summary <- data.frame(
   row.names   = NULL
 )
 
-head(me_cluster_summary, 10)
+kable(head(me_cluster_summary, 10))
 ```
