@@ -3,8 +3,8 @@ R package for a Bayesian BetA Double GEneralized Regression with mean modeled us
 
 Run the following code to install and begin using the package:
 
-install.packages("remotes")
+>install.packages("remotes")
 
-remotes::install_github("abhijainstats/BayesBadger")
+>remotes::install_github("abhijainstats/BayesBadger")
 
-library(BayesBadger)
+>library(BayesBadger)
